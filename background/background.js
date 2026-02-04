@@ -1,6 +1,12 @@
 let creatingOffscreen = null;
 let currentTabId = null;
 
+// Rate limiting
+const REQUEST_COOLDOWN_MS = 200;
+let lastRequestTime = 0;
+let pendingRequests = 0;
+const MAX_CONCURRENT_REQUESTS = 3;
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['apiKey', 'voice', 'speed'], (result) => {
     if (!result.voice) {
@@ -14,7 +20,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'guacamayo-read',
     title: 'Read with Guacamayo',
-    contexts: ['all']
+    contexts: ['page', 'selection', 'link', 'image']
   });
 });
 
@@ -114,26 +120,68 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function synthesizeSpeech(text, apiKey, voice) {
+  // Rate limiting check
+  if (pendingRequests >= MAX_CONCURRENT_REQUESTS) {
+    throw new Error('Too many pending requests. Please wait.');
+  }
+
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_COOLDOWN_MS) {
+    await new Promise(resolve => setTimeout(resolve, REQUEST_COOLDOWN_MS - timeSinceLastRequest));
+  }
+
+  lastRequestTime = Date.now();
+  pendingRequests++;
+
   const url = new URL('https://api.deepgram.com/v1/speak');
   url.searchParams.set('model', voice);
   url.searchParams.set('encoding', 'mp3');
-  
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: {
-      'Authorization': `Token ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ text })
-  });
-  
-  if (!response.ok) {
-    throw new Error(`TTS failed: ${response.status}`);
+
+  // Set up timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const statusMessages = {
+        400: 'Bad request - invalid text or parameters',
+        401: 'Unauthorized - invalid API key',
+        402: 'Payment required - API quota exceeded',
+        403: 'Forbidden - API key lacks permission for this voice',
+        429: 'Too many requests - rate limit exceeded',
+        500: 'Deepgram server error',
+        502: 'Deepgram service unavailable',
+        503: 'Deepgram service temporarily unavailable'
+      };
+      const message = statusMessages[response.status] || `HTTP error ${response.status}`;
+      throw new Error(`TTS failed: ${response.status} - ${message}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = arrayBufferToBase64(arrayBuffer);
+    return base64;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    pendingRequests--;
   }
-  
-  const arrayBuffer = await response.arrayBuffer();
-  const base64 = arrayBufferToBase64(arrayBuffer);
-  return base64;
 }
 
 function arrayBufferToBase64(buffer) {

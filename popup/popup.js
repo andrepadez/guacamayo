@@ -40,7 +40,7 @@ saveBtn.addEventListener('click', async () => {
   showStatus('Validating API key...', '');
   
   try {
-    const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-2-thalia-en', {
+    const response = await fetch(`https://api.deepgram.com/v1/speak?model=${voice}`, {
       method: 'POST',
       headers: {
         'Authorization': `Token ${apiKey}`,
@@ -50,23 +50,35 @@ saveBtn.addEventListener('click', async () => {
     });
 
     if (!response.ok) {
-      throw new Error('Invalid API key');
+      const errorMessages = {
+        401: 'Invalid API key. Please check and try again.',
+        402: 'API quota exceeded. Please check your Deepgram account.',
+        403: 'API key lacks permission for this voice.',
+        429: 'Rate limit exceeded. Please wait a moment.',
+      };
+      throw new Error(errorMessages[response.status] || `Validation failed (${response.status})`);
     }
 
     chrome.storage.local.set({ apiKey, voice, speed }, () => {
       showStatus('Settings saved!', 'success');
-      
+
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, { 
+          chrome.tabs.sendMessage(tabs[0].id, {
             type: 'SETTINGS_UPDATED',
             settings: { apiKey, voice, speed }
-          }).catch(() => {});
+          }).catch(() => {
+            // Content script not loaded on this page - that's okay
+          });
         }
       });
     });
   } catch (error) {
-    showStatus('Invalid API key. Please check and try again.', 'error');
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      showStatus('Network error. Check your connection.', 'error');
+    } else {
+      showStatus(error.message, 'error');
+    }
   }
 });
 

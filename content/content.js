@@ -1,5 +1,92 @@
 const EXCLUDED_TAGS = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'button', 'input', 'textarea', 'select', 'noscript', 'iframe'];
 
+// Toast notification system
+let activeToast = null;
+
+function showToast(message, type = 'info', duration = 5000) {
+  // Remove existing toast
+  if (activeToast) {
+    activeToast.remove();
+    activeToast = null;
+  }
+
+  const icons = {
+    error: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
+    warning: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-8h2v8z"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>'
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `guacamayo-toast ${type}`;
+  toast.innerHTML = `
+    <div class="guacamayo-toast-icon">${icons[type]}</div>
+    <div class="guacamayo-toast-message">${message}</div>
+    <button class="guacamayo-toast-close">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+      </svg>
+    </button>
+  `;
+
+  document.body.appendChild(toast);
+  activeToast = toast;
+
+  // Close button handler
+  toast.querySelector('.guacamayo-toast-close').addEventListener('click', () => {
+    toast.classList.remove('visible');
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+      if (activeToast === toast) activeToast = null;
+    }, 300);
+  });
+
+  // Trigger animation
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+  });
+
+  // Auto-dismiss
+  if (duration > 0) {
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.classList.remove('visible');
+        setTimeout(() => {
+          if (toast.parentNode) toast.remove();
+          if (activeToast === toast) activeToast = null;
+        }, 300);
+      }
+    }, duration);
+  }
+}
+
+function parseApiError(error) {
+  const message = error.message || error.toString();
+
+  if (message.includes('401') || message.includes('Unauthorized')) {
+    return 'Invalid API key. Please check your Deepgram API key in the extension settings.';
+  }
+  if (message.includes('402') || message.includes('Payment')) {
+    return 'Deepgram API quota exceeded. Please check your account balance.';
+  }
+  if (message.includes('429') || message.includes('rate limit')) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+  if (message.includes('403') || message.includes('Forbidden')) {
+    return 'Access denied. Your API key may not have permission for this voice.';
+  }
+  if (message.includes('API key not configured')) {
+    return 'No API key configured. Click the Guacamayo extension icon to add your Deepgram API key.';
+  }
+  if (message.includes('NetworkError') || message.includes('Failed to fetch')) {
+    return 'Network error. Please check your internet connection.';
+  }
+  if (message.includes('TTS failed: 5')) {
+    return 'Deepgram service temporarily unavailable. Please try again later.';
+  }
+
+  return `Playback error: ${message}`;
+}
+
 let isPlaying = false;
 let isPaused = false;
 let settings = { apiKey: '', voice: 'aura-2-thalia-en', speed: 1 };
@@ -107,14 +194,49 @@ function navigateHierarchy(direction) {
 }
 
 function handleKeyNavigation(e) {
-  if (!selectedContainer || isPlaying) return;
+  if (!selectedContainer) return;
 
-  if (e.key === 'ArrowUp') {
+  // Escape: dismiss selection or stop playback
+  if (e.key === 'Escape') {
     e.preventDefault();
-    navigateHierarchy(1); // Expand to parent
-  } else if (e.key === 'ArrowDown') {
+    clearSelection();
+    return;
+  }
+
+  // Space: play/pause toggle
+  if (e.key === ' ' && !e.target.closest('input, textarea, [contenteditable]')) {
     e.preventDefault();
-    navigateHierarchy(-1); // Shrink to child
+    togglePlayback();
+    return;
+  }
+
+  // During playback: Left/Right to skip chunks
+  if (isPlaying && !isPaused) {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (currentChunkIndex > 0) {
+        jumpToChunk(currentChunkIndex - 1);
+      }
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (currentChunkIndex < textChunks.length - 1) {
+        jumpToChunk(currentChunkIndex + 1);
+      }
+      return;
+    }
+  }
+
+  // When not playing: Up/Down to navigate hierarchy
+  if (!isPlaying) {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigateHierarchy(1); // Expand to parent
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigateHierarchy(-1); // Shrink to child
+    }
   }
 }
 
@@ -425,6 +547,7 @@ async function playChunk(index) {
       audioData = await synthesizeSpeech(textChunks[index]);
     } catch (error) {
       console.error('Playback error:', error);
+      showToast(parseApiError(error), 'error');
       stopPlayback();
       return;
     }
@@ -457,6 +580,7 @@ async function playChunk(index) {
     prefetchChunks(index + 1, 2);
   } catch (error) {
     console.error('Play error:', error);
+    showToast(parseApiError(error), 'error');
     stopPlayback();
   }
 }
@@ -478,8 +602,14 @@ function selectContainer(container, hierarchy = null, hierarchyIndex = 0) {
 
   inlineControlsEl = document.createElement('div');
   inlineControlsEl.className = 'guacamayo-inline-controls';
+
+  const canNavigate = containerHierarchy.length > 1;
+  const navHint = canNavigate
+    ? `<div class="guacamayo-nav-hint">↑↓ resize · Space play · Esc close</div>`
+    : `<div class="guacamayo-nav-hint">Space play · Esc close</div>`;
+
   inlineControlsEl.innerHTML = `
-    <button class="guacamayo-inline-btn" title="Play (scroll to change selection)">
+    <button class="guacamayo-inline-btn" title="Play selection">
       <svg class="guacamayo-icon-play" viewBox="0 0 24 24" width="20" height="20">
         <path fill="currentColor" d="M8 5v14l11-7z"/>
       </svg>
@@ -488,6 +618,10 @@ function selectContainer(container, hierarchy = null, hierarchyIndex = 0) {
       </svg>
       <div class="guacamayo-spinner" style="display:none"></div>
     </button>
+    <div class="guacamayo-progress" style="display:none">
+      <span class="guacamayo-progress-text"></span>
+    </div>
+    ${navHint}
   `;
 
   document.body.appendChild(inlineControlsEl);
@@ -527,10 +661,7 @@ function clearSelection() {
 }
 
 function positionInlineControls() {
-  if (!selectedContainer || !inlineControlsEl) return;
-  const rect = selectedContainer.getBoundingClientRect();
-  inlineControlsEl.style.top = `${rect.top + window.scrollY - 16}px`;
-  inlineControlsEl.style.left = `${rect.left + window.scrollX - 16}px`;
+  // Controls are now fixed position via CSS, no JS positioning needed
 }
 
 function updateInlineControlsUI(state) {
@@ -540,6 +671,8 @@ function updateInlineControlsUI(state) {
   const pauseIcon = inlineControlsEl.querySelector('.guacamayo-icon-pause');
   const spinner = inlineControlsEl.querySelector('.guacamayo-spinner');
   const btn = inlineControlsEl.querySelector('.guacamayo-inline-btn');
+  const progress = inlineControlsEl.querySelector('.guacamayo-progress');
+  const progressText = inlineControlsEl.querySelector('.guacamayo-progress-text');
 
   switch (state) {
     case 'loading':
@@ -548,6 +681,7 @@ function updateInlineControlsUI(state) {
       spinner.style.display = 'block';
       btn.classList.add('loading');
       btn.classList.remove('playing');
+      if (progress) progress.style.display = 'flex';
       break;
     case 'playing':
       playIcon.style.display = 'none';
@@ -555,15 +689,28 @@ function updateInlineControlsUI(state) {
       spinner.style.display = 'none';
       btn.classList.remove('loading');
       btn.classList.add('playing');
+      if (progress) progress.style.display = 'flex';
       break;
     case 'paused':
+      playIcon.style.display = 'block';
+      pauseIcon.style.display = 'none';
+      spinner.style.display = 'none';
+      btn.classList.remove('loading', 'playing');
+      if (progress) progress.style.display = 'flex';
+      break;
     case 'idle':
     default:
       playIcon.style.display = 'block';
       pauseIcon.style.display = 'none';
       spinner.style.display = 'none';
       btn.classList.remove('loading', 'playing');
+      if (progress) progress.style.display = 'none';
       break;
+  }
+
+  // Update progress text
+  if (progressText && textChunks.length > 0 && (state === 'playing' || state === 'loading' || state === 'paused')) {
+    progressText.textContent = `${currentChunkIndex + 1}/${textChunks.length}`;
   }
 }
 
@@ -582,7 +729,7 @@ function startPlayback() {
 
   const text = extractReadableText(selectedContainer);
   if (!text || text.length < 50) {
-    console.error('No readable content in selected container');
+    showToast('Not enough readable text in this selection. Try selecting a larger area.', 'warning');
     return;
   }
 
@@ -631,9 +778,7 @@ function resumePlayback() {
   }
 }
 
-// Reposition controls on scroll/resize
-window.addEventListener('scroll', positionInlineControls);
-window.addEventListener('resize', positionInlineControls);
+// Controls are now fixed position, no repositioning needed
 
 function init() {
   chrome.storage.local.get(['apiKey', 'voice', 'speed'], (result) => {
@@ -644,11 +789,26 @@ function init() {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CONTEXT_MENU_READ') {
     if (lastRightClickedElement) {
+      // Check if we're clicking on something that shouldn't be read
+      const tag = lastRightClickedElement.tagName.toLowerCase();
+      const isInteractive = ['button', 'input', 'textarea', 'select', 'a'].includes(tag) ||
+                           lastRightClickedElement.closest('button, input, textarea, select');
+
+      if (isInteractive) {
+        // Try to find a readable parent instead
+        const parent = lastRightClickedElement.closest('article, section, main, div, p');
+        if (parent) {
+          lastRightClickedElement = parent;
+        }
+      }
+
       // Build hierarchy from the clicked element
       const hierarchy = buildContainerHierarchy(lastRightClickedElement);
       if (hierarchy.length > 0) {
         // Start with the smallest readable container (index 0)
         selectContainer(hierarchy[0], hierarchy, 0);
+      } else {
+        showToast('No readable content found here. Try clicking on a text area.', 'warning');
       }
     }
   }
