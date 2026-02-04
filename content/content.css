@@ -1,0 +1,89 @@
+/* Selected container outline */
+.guacamayo-selected {
+  outline: 3px solid #4ade80 !important;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* Inline play/pause button */
+.guacamayo-inline-controls {
+  position: absolute;
+  z-index: 2147483647;
+  pointer-events: auto;
+}
+
+.guacamayo-inline-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  color: #1a1a2e;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.guacamayo-inline-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(74, 222, 128, 0.4);
+}
+
+.guacamayo-inline-btn:active {
+  transform: scale(0.95);
+}
+
+.guacamayo-inline-btn.playing {
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+}
+
+.guacamayo-inline-btn.loading {
+  cursor: wait;
+}
+
+.guacamayo-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(26, 26, 46, 0.3);
+  border-top-color: #1a1a2e;
+  border-radius: 50%;
+  animation: guacamayo-spin 0.8s linear infinite;
+}
+
+@keyframes guacamayo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Highlight overlay */
+.guacamayo-overlay-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+.guacamayo-highlight-rect {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.35), rgba(34, 197, 94, 0.35));
+  border-radius: 3px;
+  pointer-events: none;
+  animation: guacamayo-highlight-fade-in 0.3s ease;
+}
+
+@keyframes guacamayo-highlight-fade-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
