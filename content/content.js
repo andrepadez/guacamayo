@@ -74,8 +74,11 @@ function parseApiError(error) {
   if (message.includes('403') || message.includes('Forbidden')) {
     return 'Access denied. Your API key may not have permission for this voice.';
   }
-  if (message.includes('API key not configured')) {
+  if (message.includes('API key not configured') || message.includes('Deepgram API key')) {
     return 'No API key configured. Click the Guacamayo extension icon to add your Deepgram API key.';
+  }
+  if (message.includes('DeepInfra API key not configured')) {
+    return 'No DeepInfra API key configured. Click the Guacamayo extension icon to add it.';
   }
   if (message.includes('NetworkError') || message.includes('Failed to fetch')) {
     return 'Network error. Please check your internet connection.';
@@ -141,13 +144,14 @@ function detectLanguage(text) {
 
 function getVoiceForText(text) {
   const lang = detectLanguage(text);
-  // Portuguese uses Spanish voice (closest available)
-  return (lang === 'es' || lang === 'pt') ? settings.voiceEs : settings.voice;
+  if (lang === 'pt') return { voice: settings.voicePt, provider: 'kokoro' };
+  if (lang === 'es') return { voice: settings.voiceEs, provider: 'deepgram' };
+  return { voice: settings.voice, provider: 'deepgram' };
 }
 
 let isPlaying = false;
 let isPaused = false;
-let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', voiceEs: 'aura-2-carina-es', speed: 1 };
+let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', voiceEs: 'aura-2-carina-es', voicePt: 'pm_alex', speed: 1 };
 let textChunks = [];
 let currentChunkIndex = 0;
 let audioCache = new Map();
@@ -583,16 +587,26 @@ function removeClickHandler() {
 }
 
 async function synthesizeSpeech(text, voice) {
-  if (!settings.apiKey) {
-    throw new Error('API key not configured. Click the extension icon to add your Deepgram API key.');
+  const voiceInfo = voice
+    ? { voice, provider: 'deepgram' }
+    : getVoiceForText(text);
+
+  const apiKey = voiceInfo.provider === 'kokoro' ? settings.ocrApiKey : settings.apiKey;
+
+  if (!apiKey) {
+    const msg = voiceInfo.provider === 'kokoro'
+      ? 'DeepInfra API key not configured. Add it in extension settings.'
+      : 'API key not configured. Click the extension icon to add your Deepgram API key.';
+    throw new Error(msg);
   }
 
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({
       type: 'SYNTHESIZE',
       text,
-      apiKey: settings.apiKey,
-      voice: voice || getVoiceForText(text)
+      apiKey,
+      voice: voiceInfo.voice,
+      provider: voiceInfo.provider
     }, response => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
@@ -1119,7 +1133,7 @@ async function handleImageOcr(imageUrl) {
 }
 
 function init() {
-  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'voiceEs', 'speed'], (result) => {
+  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'voiceEs', 'voicePt', 'speed'], (result) => {
     settings = { ...settings, ...result };
   });
 }

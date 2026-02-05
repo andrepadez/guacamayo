@@ -196,6 +196,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: translateY(0);
 }
 
+#section-apiKey {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #333;
+}
+
 footer {
   margin-top: 20px;
   text-align: center;

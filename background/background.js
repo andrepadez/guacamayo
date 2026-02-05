@@ -22,12 +22,15 @@ const MAX_CONCURRENT_REQUESTS = 3;
 
 // Initialize storage defaults
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['apiKey', 'voice', 'voiceEs', 'speed'], (result) => {
+  chrome.storage.local.get(['apiKey', 'voice', 'voiceEs', 'voicePt', 'speed'], (result) => {
     if (!result.voice) {
       chrome.storage.local.set({ voice: 'aura-2-thalia-en' });
     }
     if (!result.voiceEs) {
       chrome.storage.local.set({ voiceEs: 'aura-2-carina-es' });
+    }
+    if (!result.voicePt) {
+      chrome.storage.local.set({ voicePt: 'pm_alex' });
     }
     if (!result.speed) {
       chrome.storage.local.set({ speed: 1 });
@@ -160,7 +163,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === 'SYNTHESIZE') {
-    synthesizeSpeech(message.text, message.apiKey, message.voice)
+    const synthesizer = message.provider === 'kokoro'
+      ? synthesizeSpeechKokoro(message.text, message.apiKey, message.voice)
+      : synthesizeSpeech(message.text, message.apiKey, message.voice);
+    synthesizer
       .then(audioData => sendResponse({ success: true, audioData }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
@@ -238,6 +244,88 @@ async function synthesizeSpeech(text, apiKey, voice) {
     const arrayBuffer = await response.arrayBuffer();
     const base64 = arrayBufferToBase64(arrayBuffer);
     return base64;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    pendingRequests--;
+  }
+}
+
+async function synthesizeSpeechKokoro(text, apiKey, voice) {
+  if (pendingRequests >= MAX_CONCURRENT_REQUESTS) {
+    throw new Error('Too many pending requests. Please wait.');
+  }
+
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_COOLDOWN_MS) {
+    await new Promise(resolve => setTimeout(resolve, REQUEST_COOLDOWN_MS - timeSinceLastRequest));
+  }
+
+  lastRequestTime = Date.now();
+  pendingRequests++;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch('https://api.deepinfra.com/v1/inference/hexgrad/Kokoro-82M', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text,
+        preset_voice: [voice],
+        output_format: 'mp3'
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const statusMessages = {
+        400: 'Bad request - invalid text or parameters',
+        401: 'Unauthorized - invalid DeepInfra API key',
+        402: 'Payment required - DeepInfra quota exceeded',
+        429: 'Too many requests - rate limit exceeded',
+        500: 'DeepInfra server error'
+      };
+      const message = statusMessages[response.status] || `HTTP error ${response.status}`;
+      throw new Error(`TTS failed: ${response.status} - ${message}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+
+    // If response is binary audio, convert to base64 like Deepgram
+    if (contentType.startsWith('audio/')) {
+      const arrayBuffer = await response.arrayBuffer();
+      return arrayBufferToBase64(arrayBuffer);
+    }
+
+    const data = await response.json();
+    if (!data.audio) {
+      throw new Error('No audio data in response');
+    }
+
+    let audio = data.audio;
+    // Strip data URL prefix if present
+    if (audio.startsWith('data:')) {
+      audio = audio.split(',')[1];
+    }
+    // Convert URL-safe base64 to standard base64
+    audio = audio.replace(/-/g, '+').replace(/_/g, '/');
+    // Fix padding
+    while (audio.length % 4 !== 0) {
+      audio += '=';
+    }
+    return audio;
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
