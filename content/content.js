@@ -95,6 +95,7 @@ let currentChunkIndex = 0;
 let audioCache = new Map();
 let highlightOverlay = null;
 let clickHandler = null;
+let playbackGeneration = 0;
 
 // New: context menu selection state
 let lastRightClickedElement = null;
@@ -198,13 +199,34 @@ function navigateHierarchy(direction) {
 }
 
 function handleKeyNavigation(e) {
-  if (!selectedContainer) return;
+  const hasSelection = !!selectedContainer;
+  const hasPlayback = isPlaying || isPaused;
+
+  if (!hasSelection && !hasPlayback) return;
 
   // Escape: dismiss selection or stop playback
   if (e.key === 'Escape') {
     e.stopImmediatePropagation();
     e.preventDefault();
-    clearSelection();
+    if (hasPlayback) {
+      stopPlayback();
+      // Keep selection if there is one, just stop audio
+      if (!hasSelection) {
+        // OCR playback — remove controls
+        if (inlineControlsEl) {
+          inlineControlsEl.remove();
+          inlineControlsEl = null;
+        }
+        if (keyHandler) {
+          document.removeEventListener('keydown', keyHandler, { capture: true });
+          keyHandler = null;
+        }
+      } else {
+        updateInlineControlsUI('idle');
+      }
+    } else {
+      clearSelection();
+    }
     return;
   }
 
@@ -233,14 +255,14 @@ function handleKeyNavigation(e) {
     }
   }
 
-  // When not playing: Up/Down to navigate hierarchy
-  if (!isPlaying) {
+  // When not playing: Up/Down to navigate hierarchy (only with container selection)
+  if (!isPlaying && hasSelection) {
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      navigateHierarchy(1); // Expand to parent
+      navigateHierarchy(1);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      navigateHierarchy(-1); // Shrink to child
+      navigateHierarchy(-1);
     }
   }
 }
@@ -477,9 +499,14 @@ function handleContentClick(e) {
 }
 
 function jumpToChunk(index) {
-  chrome.runtime.sendMessage({ type: 'STOP_AUDIO' });
+  // Increment generation to cancel any in-flight playChunk
+  playbackGeneration++;
   audioCache.clear();
-  playChunk(index);
+  chrome.runtime.sendMessage({ type: 'STOP_AUDIO' }, () => {
+    if (isPlaying) {
+      playChunk(index);
+    }
+  });
 }
 
 function setupClickHandler() {
@@ -523,26 +550,26 @@ async function synthesizeSpeech(text) {
 }
 
 async function prefetchChunks(startIndex, count = 2) {
+  const generation = playbackGeneration;
+
   for (let i = startIndex; i < Math.min(startIndex + count, textChunks.length); i++) {
-    if (audioCache.has(i) || !isPlaying) continue;
+    if (audioCache.has(i) || !isPlaying || generation !== playbackGeneration) return;
 
     try {
       const audioData = await synthesizeSpeech(textChunks[i]);
-      if (isPlaying) {
+      if (isPlaying && generation === playbackGeneration) {
         audioCache.set(i, audioData);
       }
     } catch (e) {
-      console.error('Prefetch error:', e);
       break;
     }
   }
 }
 
 async function playChunk(index) {
-  console.log('[Guacamayo] playChunk called, index:', index);
+  const generation = ++playbackGeneration;
 
   if (index >= textChunks.length) {
-    console.log('[Guacamayo] End of chunks, stopping');
     stopPlayback();
     return;
   }
@@ -551,31 +578,24 @@ async function playChunk(index) {
   highlightChunk(index);
 
   let audioData = audioCache.get(index);
-  console.log('[Guacamayo] audioData from cache:', !!audioData);
 
   if (!audioData) {
     updateInlineControlsUI('loading');
-    console.log('[Guacamayo] Calling synthesizeSpeech...');
     try {
       audioData = await synthesizeSpeech(textChunks[index]);
-      console.log('[Guacamayo] synthesizeSpeech returned, audioData length:', audioData?.length);
     } catch (error) {
-      console.error('[Guacamayo] Playback error:', error);
+      if (generation !== playbackGeneration) return;
       showToast(parseApiError(error), 'error');
       stopPlayback();
       return;
     }
   }
 
-  console.log('[Guacamayo] isPlaying:', isPlaying);
-  if (!isPlaying) {
-    console.log('[Guacamayo] isPlaying is false, aborting');
-    return;
-  }
+  // Abort if a newer playChunk call was made while we were synthesizing
+  if (generation !== playbackGeneration || !isPlaying) return;
 
   audioCache.delete(index);
 
-  console.log('[Guacamayo] Sending PLAY_AUDIO, audioData length:', audioData?.length);
   try {
     await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
@@ -583,7 +603,6 @@ async function playChunk(index) {
         audioData,
         speed: settings.speed
       }, response => {
-        console.log('[Guacamayo] PLAY_AUDIO response:', response);
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
@@ -596,11 +615,13 @@ async function playChunk(index) {
       });
     });
 
-    console.log('[Guacamayo] PLAY_AUDIO successful, updating UI');
+    // Abort if a newer playChunk call was made while audio was starting
+    if (generation !== playbackGeneration || !isPlaying) return;
+
     updateInlineControlsUI('playing');
     prefetchChunks(index + 1, 2);
   } catch (error) {
-    console.error('[Guacamayo] Play error:', error);
+    if (generation !== playbackGeneration) return;
     showToast(parseApiError(error), 'error');
     stopPlayback();
   }
@@ -768,6 +789,7 @@ function startPlayback() {
 function stopPlayback() {
   isPlaying = false;
   isPaused = false;
+  playbackGeneration++;
 
   chrome.runtime.sendMessage({ type: 'STOP_AUDIO' });
   audioCache.clear();

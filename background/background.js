@@ -1,6 +1,19 @@
 let creatingOffscreen = null;
 let currentTabId = null;
 
+// Persist currentTabId across service worker restarts
+async function setCurrentTabId(tabId) {
+  currentTabId = tabId;
+  await chrome.storage.session.set({ currentTabId: tabId });
+}
+
+async function getCurrentTabId() {
+  if (currentTabId) return currentTabId;
+  const result = await chrome.storage.session.get('currentTabId');
+  currentTabId = result.currentTabId || null;
+  return currentTabId;
+}
+
 // Rate limiting
 const REQUEST_COOLDOWN_MS = 200;
 let lastRequestTime = 0;
@@ -84,21 +97,25 @@ async function ensureOffscreenDocument() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'AUDIO_ENDED_FROM_OFFSCREEN') {
-    if (currentTabId) {
-      chrome.tabs.sendMessage(currentTabId, { type: 'AUDIO_ENDED' }).catch(() => {});
-    }
+    getCurrentTabId().then(tabId => {
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, { type: 'AUDIO_ENDED' }).catch(() => {});
+      }
+    });
     return;
   }
-  
+
   if (message.type === 'AUDIO_ERROR_FROM_OFFSCREEN') {
-    if (currentTabId) {
-      chrome.tabs.sendMessage(currentTabId, { type: 'AUDIO_ERROR', error: message.error }).catch(() => {});
-    }
+    getCurrentTabId().then(tabId => {
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, { type: 'AUDIO_ERROR', error: message.error }).catch(() => {});
+      }
+    });
     return;
   }
-  
+
   if (message.type === 'PLAY_AUDIO') {
-    currentTabId = sender.tab?.id;
+    setCurrentTabId(sender.tab?.id);
     ensureOffscreenDocument()
       .then(() => chrome.runtime.sendMessage({
         target: 'offscreen',
@@ -106,7 +123,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         audioData: message.audioData,
         speed: message.speed
       }))
-      .then(() => sendResponse({ success: true }))
+      .then(response => sendResponse(response || { success: true }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
