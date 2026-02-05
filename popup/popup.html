@@ -15,12 +15,12 @@
 
     <main>
       <section class="settings-section">
-        <label for="apiKey">Deepgram API Key</label>
+        <label for="apiKey">Deepgram API Key (TTS)</label>
         <div class="input-group">
-          <input 
-            type="password" 
-            id="apiKey" 
-            placeholder="Enter your API key"
+          <input
+            type="password"
+            id="apiKey"
+            placeholder="Enter your Deepgram API key"
             autocomplete="off"
           >
           <button id="toggleKey" class="icon-btn" title="Show/Hide">
@@ -29,6 +29,38 @@
             </svg>
           </button>
         </div>
+      </section>
+
+      <section class="settings-section">
+        <label for="ocrApiKey">DeepInfra API Key (OCR)</label>
+        <div class="input-group">
+          <input
+            type="password"
+            id="ocrApiKey"
+            placeholder="Enter your DeepInfra API key"
+            autocomplete="off"
+          >
+          <button id="toggleOcrKey" class="icon-btn" title="Show/Hide">
+            <svg class="eye-icon" viewBox="0 0 24 24" width="20" height="20">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <label for="ocrModel">OCR Model</label>
+        <select id="ocrModel">
+          <optgroup label="OCR Specialized">
+            <option value="deepseek-ai/DeepSeek-OCR">DeepSeek OCR (fast, accurate)</option>
+            <option value="allenai/olmOCR-2-7B-1025">olmOCR-2 (complex layouts)</option>
+            <option value="PaddlePaddle/PaddleOCR-VL-0.9B">PaddleOCR-VL (lightweight)</option>
+          </optgroup>
+          <optgroup label="Qwen Vision">
+            <option value="Qwen/Qwen3-VL-30B-A3B-Instruct">Qwen3-VL-30B</option>
+            <option value="Qwen/Qwen3-VL-235B-A22B-Instruct">Qwen3-VL-235B (largest)</option>
+          </optgroup>
+        </select>
       </section>
 
       <section class="settings-section">
@@ -97,7 +129,9 @@
     </details>
 
     <footer>
-      <a href="https://developers.deepgram.com" target="_blank" rel="noopener">Get API Key</a>
+      <a href="https://developers.deepgram.com" target="_blank" rel="noopener">Deepgram</a>
+      <span class="footer-sep">·</span>
+      <a href="https://deepinfra.com/dash/api_keys" target="_blank" rel="noopener">DeepInfra</a>
     </footer>
   </div>
 

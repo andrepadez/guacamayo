@@ -214,6 +214,11 @@ footer a:hover {
   text-decoration: underline;
 }
 
+.footer-sep {
+  color: #555;
+  margin: 0 4px;
+}
+
 /* Usage guide */
 .usage-guide {
   margin-bottom: 16px;

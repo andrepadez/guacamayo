@@ -89,7 +89,7 @@ function parseApiError(error) {
 
 let isPlaying = false;
 let isPaused = false;
-let settings = { apiKey: '', voice: 'aura-2-thalia-en', speed: 1 };
+let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', speed: 1 };
 let textChunks = [];
 let currentChunkIndex = 0;
 let audioCache = new Map();
@@ -100,6 +100,10 @@ let clickHandler = null;
 let lastRightClickedElement = null;
 let selectedContainer = null;
 let inlineControlsEl = null;
+
+// OCR state
+let ocrOverlayEl = null;
+let extractedOcrText = null;
 
 // Container hierarchy for scroll/keyboard navigation
 let containerHierarchy = [];
@@ -198,6 +202,7 @@ function handleKeyNavigation(e) {
 
   // Escape: dismiss selection or stop playback
   if (e.key === 'Escape') {
+    e.stopImmediatePropagation();
     e.preventDefault();
     clearSelection();
     return;
@@ -240,7 +245,7 @@ function handleKeyNavigation(e) {
   }
 }
 
-function chunkText(text, maxLength = 400) {
+function chunkText(text, maxLength = 1000) {
   const chunks = [];
   const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
   let currentChunk = '';
@@ -376,6 +381,9 @@ function createHighlightOverlay() {
 }
 
 function highlightChunk(chunkIndex) {
+  // Skip highlighting for OCR text (no container to highlight in)
+  if (extractedOcrText) return;
+
   if (!highlightOverlay) {
     createHighlightOverlay();
   }
@@ -531,7 +539,10 @@ async function prefetchChunks(startIndex, count = 2) {
 }
 
 async function playChunk(index) {
+  console.log('[Guacamayo] playChunk called, index:', index);
+
   if (index >= textChunks.length) {
+    console.log('[Guacamayo] End of chunks, stopping');
     stopPlayback();
     return;
   }
@@ -540,23 +551,31 @@ async function playChunk(index) {
   highlightChunk(index);
 
   let audioData = audioCache.get(index);
+  console.log('[Guacamayo] audioData from cache:', !!audioData);
 
   if (!audioData) {
     updateInlineControlsUI('loading');
+    console.log('[Guacamayo] Calling synthesizeSpeech...');
     try {
       audioData = await synthesizeSpeech(textChunks[index]);
+      console.log('[Guacamayo] synthesizeSpeech returned, audioData length:', audioData?.length);
     } catch (error) {
-      console.error('Playback error:', error);
+      console.error('[Guacamayo] Playback error:', error);
       showToast(parseApiError(error), 'error');
       stopPlayback();
       return;
     }
   }
 
-  if (!isPlaying) return;
+  console.log('[Guacamayo] isPlaying:', isPlaying);
+  if (!isPlaying) {
+    console.log('[Guacamayo] isPlaying is false, aborting');
+    return;
+  }
 
   audioCache.delete(index);
 
+  console.log('[Guacamayo] Sending PLAY_AUDIO, audioData length:', audioData?.length);
   try {
     await new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
@@ -564,6 +583,7 @@ async function playChunk(index) {
         audioData,
         speed: settings.speed
       }, response => {
+        console.log('[Guacamayo] PLAY_AUDIO response:', response);
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
@@ -576,10 +596,11 @@ async function playChunk(index) {
       });
     });
 
+    console.log('[Guacamayo] PLAY_AUDIO successful, updating UI');
     updateInlineControlsUI('playing');
     prefetchChunks(index + 1, 2);
   } catch (error) {
-    console.error('Play error:', error);
+    console.error('[Guacamayo] Play error:', error);
     showToast(parseApiError(error), 'error');
     stopPlayback();
   }
@@ -633,7 +654,7 @@ function selectContainer(container, hierarchy = null, hierarchyIndex = 0) {
   wheelHandler = handleWheelNavigation;
   keyHandler = handleKeyNavigation;
   document.addEventListener('wheel', wheelHandler, { passive: false });
-  document.addEventListener('keydown', keyHandler);
+  document.addEventListener('keydown', keyHandler, { capture: true });
 }
 
 function clearSelection() {
@@ -650,7 +671,7 @@ function clearSelection() {
     wheelHandler = null;
   }
   if (keyHandler) {
-    document.removeEventListener('keydown', keyHandler);
+    document.removeEventListener('keydown', keyHandler, { capture: true });
     keyHandler = null;
   }
   containerHierarchy = [];
@@ -758,6 +779,9 @@ function stopPlayback() {
     highlightOverlay = null;
   }
 
+  // Clean up OCR state
+  extractedOcrText = null;
+
   currentChunkIndex = 0;
   updateInlineControlsUI('idle');
 }
@@ -780,8 +804,242 @@ function resumePlayback() {
 
 // Controls are now fixed position, no repositioning needed
 
+// ============ OCR Functions ============
+
+async function fetchImageAsBase64(url) {
+  console.log('[Guacamayo] Fetching image:', url);
+  try {
+    const response = await fetch(url, { mode: 'cors' });
+    console.log('[Guacamayo] Fetch response status:', response.status);
+    const blob = await response.blob();
+    console.log('[Guacamayo] Blob size:', blob.size);
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        console.log('[Guacamayo] Base64 length:', reader.result?.length);
+        resolve(reader.result);
+      };
+      reader.onerror = (e) => {
+        console.error('[Guacamayo] FileReader error:', e);
+        reject(e);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('[Guacamayo] Image fetch error:', error);
+    throw new Error(`Failed to load image: ${error.message}`);
+  }
+}
+
+function showOcrOverlay(imageUrl) {
+  console.log('[Guacamayo] Showing OCR overlay for:', imageUrl);
+  removeOcrOverlay();
+
+  ocrOverlayEl = document.createElement('div');
+  ocrOverlayEl.className = 'guacamayo-ocr-overlay';
+  ocrOverlayEl.innerHTML = `
+    <div class="guacamayo-ocr-card">
+      <div class="guacamayo-ocr-header">
+        <span>Reading image...</span>
+        <button class="guacamayo-ocr-close" title="Cancel">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="guacamayo-ocr-preview">
+        <img src="${imageUrl}" alt="Image being processed">
+      </div>
+      <div class="guacamayo-ocr-languages">
+        <div class="guacamayo-ocr-progress">
+          <div class="guacamayo-ocr-progress-bar">
+            <div class="guacamayo-ocr-progress-fill" style="width: 30%"></div>
+          </div>
+          <span class="guacamayo-ocr-progress-text">Extracting text...</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(ocrOverlayEl);
+
+  ocrOverlayEl.querySelector('.guacamayo-ocr-close').addEventListener('click', () => {
+    removeOcrOverlay();
+  });
+}
+
+function updateOcrProgress(progress, text) {
+  if (!ocrOverlayEl) return;
+
+  const fill = ocrOverlayEl.querySelector('.guacamayo-ocr-progress-fill');
+  const progressText = ocrOverlayEl.querySelector('.guacamayo-ocr-progress-text');
+
+  if (fill) fill.style.width = `${progress}%`;
+  if (progressText) progressText.textContent = text || `Extracting text... ${progress}%`;
+}
+
+function showOcrError(error) {
+  if (!ocrOverlayEl) return;
+
+  const header = ocrOverlayEl.querySelector('.guacamayo-ocr-header span');
+  if (header) header.textContent = 'Error';
+
+  const langSection = ocrOverlayEl.querySelector('.guacamayo-ocr-languages');
+  if (langSection) {
+    langSection.innerHTML = `
+      <div class="guacamayo-ocr-error">
+        <span>${escapeHtml(error)}</span>
+      </div>
+    `;
+  }
+}
+
+function showOcrResult(text) {
+  if (!ocrOverlayEl) return;
+
+  // Update header
+  const header = ocrOverlayEl.querySelector('.guacamayo-ocr-header span');
+  if (header) header.textContent = 'Text extracted';
+
+  // Replace languages/progress section with result
+  const langSection = ocrOverlayEl.querySelector('.guacamayo-ocr-languages');
+  if (langSection) {
+    langSection.innerHTML = `
+      <div class="guacamayo-ocr-result">
+        <div class="guacamayo-ocr-text">${escapeHtml(text.substring(0, 200))}${text.length > 200 ? '...' : ''}</div>
+        <button class="guacamayo-ocr-play">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          Play
+        </button>
+      </div>
+    `;
+
+    langSection.querySelector('.guacamayo-ocr-play').addEventListener('click', () => {
+      removeOcrOverlay();
+      playExtractedText(text);
+    });
+  }
+}
+
+function removeOcrOverlay() {
+  if (ocrOverlayEl) {
+    ocrOverlayEl.remove();
+    ocrOverlayEl = null;
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function playExtractedText(text) {
+  console.log('[Guacamayo] playExtractedText called, text length:', text.length);
+  console.log('[Guacamayo] settings.apiKey exists:', !!settings.apiKey);
+
+  // Check for API key
+  if (!settings.apiKey) {
+    showToast('Deepgram API key not configured. Click the extension icon to add it.', 'error');
+    return;
+  }
+
+  // Clear any existing selection FIRST (before setting isPlaying)
+  clearSelection();
+
+  // Create a virtual container for the extracted text
+  extractedOcrText = text;
+
+  // Clean up text - remove excessive whitespace/newlines from OCR
+  const cleanedText = text.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Reuse existing playback infrastructure
+  textChunks = chunkText(cleanedText);
+  console.log('[Guacamayo] Chunked into', textChunks.length, 'chunks');
+
+  currentChunkIndex = 0;
+  isPlaying = true;
+  isPaused = false;
+  audioCache.clear();
+
+  // Create UI for OCR playback
+  showOcrPlaybackControls();
+  console.log('[Guacamayo] Starting playChunk(0)');
+  playChunk(0);
+}
+
+function showOcrPlaybackControls() {
+  inlineControlsEl = document.createElement('div');
+  inlineControlsEl.className = 'guacamayo-inline-controls';
+  inlineControlsEl.innerHTML = `
+    <button class="guacamayo-inline-btn" title="Pause">
+      <svg class="guacamayo-icon-play" viewBox="0 0 24 24" width="20" height="20" style="display:none">
+        <path fill="currentColor" d="M8 5v14l11-7z"/>
+      </svg>
+      <svg class="guacamayo-icon-pause" viewBox="0 0 24 24" width="20" height="20">
+        <path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+      </svg>
+      <div class="guacamayo-spinner" style="display:none"></div>
+    </button>
+    <div class="guacamayo-progress" style="display:flex">
+      <span class="guacamayo-progress-text">1/${textChunks.length}</span>
+    </div>
+    <div class="guacamayo-nav-hint">From image · ←→ skip · Esc stop</div>
+  `;
+
+  document.body.appendChild(inlineControlsEl);
+
+  inlineControlsEl.querySelector('.guacamayo-inline-btn').addEventListener('click', togglePlayback);
+
+  // Set up keyboard handler
+  keyHandler = handleKeyNavigation;
+  document.addEventListener('keydown', keyHandler, { capture: true });
+}
+
+async function handleImageOcr(imageUrl) {
+  showOcrOverlay(imageUrl);
+
+  try {
+    updateOcrProgress(10, 'Loading image...');
+    const imageData = await fetchImageAsBase64(imageUrl);
+
+    updateOcrProgress(30, 'Extracting text...');
+
+    const result = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        type: 'OCR_IMAGE',
+        imageData,
+        ocrApiKey: settings.ocrApiKey,
+        ocrModel: settings.ocrModel
+      }, response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(response);
+      });
+    });
+
+    if (result.success && result.text) {
+      const trimmedText = result.text.trim();
+      if (trimmedText.length < 10) {
+        showOcrError('No readable text found in image.');
+      } else {
+        showOcrResult(trimmedText);
+      }
+    } else {
+      showOcrError(result.error || 'Failed to extract text from image.');
+    }
+  } catch (error) {
+    console.error('OCR error:', error);
+    showOcrError(error.message);
+  }
+}
+
 function init() {
-  chrome.storage.local.get(['apiKey', 'voice', 'speed'], (result) => {
+  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'speed'], (result) => {
     settings = { ...settings, ...result };
   });
 }
@@ -826,6 +1084,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'AUDIO_ERROR') {
     stopPlayback();
+  }
+
+  // OCR: Handle image read request
+  if (message.type === 'CONTEXT_MENU_READ_IMAGE') {
+    console.log('[Guacamayo] Received image OCR request:', message.imageUrl);
+    handleImageOcr(message.imageUrl);
+  }
+
+  // OCR: Progress update
+  if (message.type === 'OCR_PROGRESS') {
+    updateOcrProgress(message.progress, `Extracting text... ${message.progress}%`);
   }
 });
 
