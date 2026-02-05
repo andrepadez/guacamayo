@@ -87,9 +87,67 @@ function parseApiError(error) {
   return `Playback error: ${message}`;
 }
 
+// Language detection stopwords
+const SPANISH_WORDS = new Set([
+  'de', 'el', 'la', 'los', 'las', 'en', 'es', 'que', 'un', 'una', 'por',
+  'con', 'para', 'del', 'al', 'se', 'lo', 'su', 'no', 'más', 'pero',
+  'como', 'este', 'esta', 'todo', 'también', 'fue', 'son', 'entre',
+  'cuando', 'muy', 'sin', 'sobre', 'ser', 'tiene', 'ya', 'está',
+  'desde', 'hay', 'nos', 'puede', 'todos', 'así', 'donde', 'otro',
+  'sus', 'ella', 'porque', 'qué', 'él', 'cual', 'cada', 'hacer',
+  'sino', 'bien', 'estos', 'estas', 'mismo', 'había', 'hasta', 'año',
+  'tienen', 'mejor', 'mundo', 'aquí', 'ahora', 'algo', 'después'
+]);
+
+const ENGLISH_WORDS = new Set([
+  'the', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'will',
+  'would', 'can', 'could', 'do', 'does', 'did', 'not', 'but', 'and',
+  'or', 'for', 'with', 'this', 'that', 'from', 'they', 'been', 'which',
+  'their', 'said', 'each', 'she', 'how', 'its', 'may', 'than', 'been',
+  'now', 'way', 'these', 'then', 'who', 'get', 'just', 'know', 'take',
+  'people', 'into', 'year', 'your', 'some', 'them', 'time', 'very',
+  'when', 'what', 'there', 'much', 'through', 'should', 'about', 'where'
+]);
+
+const PORTUGUESE_WORDS = new Set([
+  'de', 'que', 'não', 'uma', 'com', 'para', 'por', 'mais', 'como',
+  'mas', 'foi', 'também', 'são', 'tem', 'nos', 'já', 'está', 'até',
+  'isso', 'ela', 'entre', 'depois', 'sem', 'mesmo', 'aos', 'ter',
+  'seus', 'há', 'muito', 'ainda', 'pode', 'vai', 'esse', 'essa',
+  'numa', 'nem', 'são', 'quando', 'ser', 'tem', 'isto', 'aqui',
+  'então', 'porque', 'sobre', 'assim', 'nós', 'você', 'bem', 'onde',
+  'pelo', 'pela', 'era', 'todas', 'todos', 'outros', 'outras', 'muito',
+  'depois', 'fazer', 'coisa', 'outro', 'outra', 'ainda', 'grande'
+]);
+
+function detectLanguage(text) {
+  const words = text.toLowerCase().replace(/[^\w\sáéíóúñüàèìòùâêîôûãõç]/g, '').split(/\s+/);
+  let enScore = 0;
+  let esScore = 0;
+  let ptScore = 0;
+
+  for (const word of words) {
+    if (ENGLISH_WORDS.has(word)) enScore++;
+    if (SPANISH_WORDS.has(word)) esScore++;
+    if (PORTUGUESE_WORDS.has(word)) ptScore++;
+  }
+
+  const maxScore = Math.max(enScore, esScore, ptScore);
+  if (maxScore === 0) return 'en';
+  if (ptScore === maxScore) return 'pt';
+  if (esScore === maxScore) return 'es';
+  return 'en';
+}
+
+function getVoiceForText(text) {
+  const lang = detectLanguage(text);
+  // Portuguese uses Spanish voice (closest available)
+  return (lang === 'es' || lang === 'pt') ? settings.voiceEs : settings.voice;
+}
+
 let isPlaying = false;
 let isPaused = false;
-let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', speed: 1 };
+let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', voiceEs: 'aura-2-carina-es', speed: 1 };
 let textChunks = [];
 let currentChunkIndex = 0;
 let audioCache = new Map();
@@ -524,7 +582,7 @@ function removeClickHandler() {
   }
 }
 
-async function synthesizeSpeech(text) {
+async function synthesizeSpeech(text, voice) {
   if (!settings.apiKey) {
     throw new Error('API key not configured. Click the extension icon to add your Deepgram API key.');
   }
@@ -534,7 +592,7 @@ async function synthesizeSpeech(text) {
       type: 'SYNTHESIZE',
       text,
       apiKey: settings.apiKey,
-      voice: settings.voice
+      voice: voice || getVoiceForText(text)
     }, response => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
@@ -1061,7 +1119,7 @@ async function handleImageOcr(imageUrl) {
 }
 
 function init() {
-  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'speed'], (result) => {
+  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'voiceEs', 'speed'], (result) => {
     settings = { ...settings, ...result };
   });
 }

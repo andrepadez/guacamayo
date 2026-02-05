@@ -4,12 +4,13 @@ const ocrApiKeyInput = document.getElementById('ocrApiKey');
 const toggleOcrKeyBtn = document.getElementById('toggleOcrKey');
 const ocrModelSelect = document.getElementById('ocrModel');
 const voiceSelect = document.getElementById('voice');
+const voiceEsSelect = document.getElementById('voiceEs');
 const speedInput = document.getElementById('speed');
 const speedValue = document.getElementById('speedValue');
 const saveBtn = document.getElementById('saveBtn');
 const status = document.getElementById('status');
 
-chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'speed'], (result) => {
+chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'voiceEs', 'speed'], (result) => {
   if (result.apiKey) {
     apiKeyInput.value = result.apiKey;
   }
@@ -21,6 +22,9 @@ chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'speed'], 
   }
   if (result.voice) {
     voiceSelect.value = result.voice;
+  }
+  if (result.voiceEs) {
+    voiceEsSelect.value = result.voiceEs;
   }
   if (result.speed) {
     speedInput.value = result.speed;
@@ -45,6 +49,7 @@ saveBtn.addEventListener('click', async () => {
   const ocrApiKey = ocrApiKeyInput.value.trim();
   const ocrModel = ocrModelSelect.value;
   const voice = voiceSelect.value;
+  const voiceEs = voiceEsSelect.value;
   const speed = parseFloat(speedInput.value);
 
   if (!apiKey) {
@@ -75,14 +80,14 @@ saveBtn.addEventListener('click', async () => {
       throw new Error(errorMessages[response.status] || `Deepgram validation failed (${response.status})`);
     }
 
-    chrome.storage.local.set({ apiKey, ocrApiKey, ocrModel, voice, speed }, () => {
+    chrome.storage.local.set({ apiKey, ocrApiKey, ocrModel, voice, voiceEs, speed }, () => {
       showStatus('Settings saved!', 'success');
 
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]) {
           chrome.tabs.sendMessage(tabs[0].id, {
             type: 'SETTINGS_UPDATED',
-            settings: { apiKey, ocrApiKey, ocrModel, voice, speed }
+            settings: { apiKey, ocrApiKey, ocrModel, voice, voiceEs, speed }
           }).catch(() => {});
         }
       });

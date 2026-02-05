@@ -22,9 +22,12 @@ const MAX_CONCURRENT_REQUESTS = 3;
 
 // Initialize storage defaults
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['apiKey', 'voice', 'speed'], (result) => {
+  chrome.storage.local.get(['apiKey', 'voice', 'voiceEs', 'speed'], (result) => {
     if (!result.voice) {
       chrome.storage.local.set({ voice: 'aura-2-thalia-en' });
+    }
+    if (!result.voiceEs) {
+      chrome.storage.local.set({ voiceEs: 'aura-2-carina-es' });
     }
     if (!result.speed) {
       chrome.storage.local.set({ speed: 1 });
