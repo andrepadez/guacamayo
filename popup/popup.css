@@ -48,49 +48,6 @@ label {
   letter-spacing: 0.5px;
 }
 
-.input-group {
-  display: flex;
-  gap: 8px;
-}
-
-input[type="password"],
-input[type="text"] {
-  flex: 1;
-  padding: 12px 14px;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #16213e;
-  color: #eaeaea;
-  font-size: 14px;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-input[type="password"]:focus,
-input[type="text"]:focus {
-  outline: none;
-  border-color: #4ade80;
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
-}
-
-.icon-btn {
-  padding: 12px;
-  border: 1px solid #333;
-  border-radius: 8px;
-  background: #16213e;
-  color: #888;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.icon-btn:hover {
-  border-color: #4ade80;
-  color: #4ade80;
-}
-
-.icon-btn svg {
-  fill: currentColor;
-}
-
 select {
   width: 100%;
   padding: 12px 14px;
@@ -196,18 +153,40 @@ input[type="range"]::-webkit-slider-thumb:hover {
   transform: translateY(0);
 }
 
-#section-apiKey {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #333;
-}
-
-footer {
-  margin-top: 20px;
+/* No-config banner */
+.no-config-banner {
+  background: #2a1a1a;
+  border: 1px solid #5a3333;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
   text-align: center;
 }
 
-footer a {
+.no-config-banner p {
+  font-size: 13px;
+  color: #f87171;
+  margin-bottom: 6px;
+}
+
+.no-config-banner a {
+  font-size: 12px;
+  color: #4ade80;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.no-config-banner a:hover {
+  text-decoration: underline;
+}
+
+/* Options link */
+.options-link {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.options-link a {
   font-size: 12px;
   color: #4ade80;
   text-decoration: none;
@@ -215,14 +194,9 @@ footer a {
   transition: opacity 0.2s;
 }
 
-footer a:hover {
+.options-link a:hover {
   opacity: 1;
   text-decoration: underline;
-}
-
-.footer-sep {
-  color: #555;
-  margin: 0 4px;
 }
 
 /* Usage guide */

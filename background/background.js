@@ -20,22 +20,46 @@ let lastRequestTime = 0;
 let pendingRequests = 0;
 const MAX_CONCURRENT_REQUESTS = 3;
 
-// Initialize storage defaults
+// Initialize storage defaults + migrate old schema
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['apiKey', 'voice', 'voiceEs', 'voicePt', 'speed'], (result) => {
-    if (!result.voice) {
-      chrome.storage.local.set({ voice: 'aura-2-thalia-en' });
+  chrome.storage.local.get(
+    ['apiKey', 'ocrApiKey', 'ttsProvider', 'voice', 'voiceEs', 'voicePt', 'speed'],
+    (result) => {
+      // Migrate old keys to new schema
+      if (result.apiKey && !result.ttsProvider) {
+        chrome.storage.local.set({
+          ttsProvider: 'deepgram',
+          ttsBaseUrl: 'https://api.deepgram.com',
+          ttsApiKey: result.apiKey,
+          ttsModel: ''
+        });
+      }
+      if (result.ocrApiKey && !result.ttsProvider) {
+        chrome.storage.local.set({
+          ocrBaseUrl: 'https://api.deepinfra.com/v1/openai',
+          ocrApiKey: result.ocrApiKey,
+          ocrModel: 'deepseek-ai/DeepSeek-OCR'
+        });
+      }
+
+      // Set defaults for fresh install (local providers)
+      if (!result.ttsProvider && !result.apiKey) {
+        chrome.storage.local.set({
+          ttsProvider: 'openai',
+          ttsBaseUrl: 'http://macmini:9002',
+          ttsApiKey: '',
+          ttsModel: 'mlx-community/Kokoro-82M-bf16',
+          ocrBaseUrl: 'http://macmini:1234/v1',
+          ocrApiKey: '',
+          ocrModel: 'qwen/qwen2.5-vl-7b'
+        });
+      }
+      if (!result.voice) chrome.storage.local.set({ voice: 'af_heart' });
+      if (!result.voiceEs) chrome.storage.local.set({ voiceEs: 'ef_dora' });
+      if (!result.voicePt) chrome.storage.local.set({ voicePt: 'pf_dora' });
+      if (!result.speed) chrome.storage.local.set({ speed: 1 });
     }
-    if (!result.voiceEs) {
-      chrome.storage.local.set({ voiceEs: 'aura-2-carina-es' });
-    }
-    if (!result.voicePt) {
-      chrome.storage.local.set({ voicePt: 'pm_alex' });
-    }
-    if (!result.speed) {
-      chrome.storage.local.set({ speed: 1 });
-    }
-  });
+  );
 });
 
 // Create context menus on startup (runs every time service worker starts)
@@ -133,50 +157,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
-  
+
   if (message.type === 'PAUSE_AUDIO') {
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'PAUSE_AUDIO' })
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: true }));
     return true;
   }
-  
+
   if (message.type === 'RESUME_AUDIO') {
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'RESUME_AUDIO' })
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: true }));
     return true;
   }
-  
+
   if (message.type === 'STOP_AUDIO') {
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'STOP_AUDIO' })
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: true }));
     return true;
   }
-  
+
   if (message.type === 'SET_SPEED') {
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'SET_SPEED', speed: message.speed })
       .then(() => sendResponse({ success: true }))
       .catch(() => sendResponse({ success: true }));
     return true;
   }
-  
+
   if (message.type === 'SYNTHESIZE') {
-    const synthesizer = message.provider === 'kokoro'
-      ? synthesizeSpeechKokoro(message.text, message.apiKey, message.voice)
-      : synthesizeSpeech(message.text, message.apiKey, message.voice);
+    let synthesizer;
+    switch (message.provider) {
+      case 'kokoro':
+        synthesizer = synthesizeSpeechKokoro(message.text, message.apiKey, message.voice, message.baseUrl, message.model);
+        break;
+      case 'openai':
+        synthesizer = synthesizeSpeechOpenAI(message.text, message.baseUrl, message.apiKey, message.model, message.voice);
+        break;
+      default:
+        synthesizer = synthesizeSpeechDeepgram(message.text, message.apiKey, message.voice, message.baseUrl);
+        break;
+    }
     synthesizer
       .then(audioData => sendResponse({ success: true, audioData }))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
-  // OCR: Request text extraction from image using DeepInfra API
+  // OCR: Request text extraction from image
   if (message.type === 'OCR_IMAGE') {
     console.log('[Guacamayo] OCR_IMAGE received, model:', message.ocrModel);
 
-    performOCR(message.imageData, message.ocrApiKey, message.ocrModel)
+    performOCR(message.imageData, message.ocrApiKey, message.ocrModel, message.ocrBaseUrl)
       .then(result => {
         console.log('[Guacamayo] OCR complete, success:', result.success);
         sendResponse(result);
@@ -186,12 +219,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ success: false, error: err.message });
       });
 
-    return true; // Keep channel open for async response
+    return true;
   }
 });
 
-async function synthesizeSpeech(text, apiKey, voice) {
-  // Rate limiting check
+async function synthesizeSpeechDeepgram(text, apiKey, voice, baseUrl) {
   if (pendingRequests >= MAX_CONCURRENT_REQUESTS) {
     throw new Error('Too many pending requests. Please wait.');
   }
@@ -205,13 +237,12 @@ async function synthesizeSpeech(text, apiKey, voice) {
   lastRequestTime = Date.now();
   pendingRequests++;
 
-  const url = new URL('https://api.deepgram.com/v1/speak');
+  const url = new URL(`${baseUrl}/v1/speak`);
   url.searchParams.set('model', voice);
   url.searchParams.set('encoding', 'mp3');
 
-  // Set up timeout
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
     const response = await fetch(url.toString(), {
@@ -242,8 +273,7 @@ async function synthesizeSpeech(text, apiKey, voice) {
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    const base64 = arrayBufferToBase64(arrayBuffer);
-    return base64;
+    return arrayBufferToBase64(arrayBuffer);
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
@@ -255,7 +285,7 @@ async function synthesizeSpeech(text, apiKey, voice) {
   }
 }
 
-async function synthesizeSpeechKokoro(text, apiKey, voice) {
+async function synthesizeSpeechKokoro(text, apiKey, voice, baseUrl, model) {
   if (pendingRequests >= MAX_CONCURRENT_REQUESTS) {
     throw new Error('Too many pending requests. Please wait.');
   }
@@ -273,7 +303,7 @@ async function synthesizeSpeechKokoro(text, apiKey, voice) {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch('https://api.deepinfra.com/v1/inference/hexgrad/Kokoro-82M', {
+    const response = await fetch(`${baseUrl}/v1/inference/${model}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -292,10 +322,10 @@ async function synthesizeSpeechKokoro(text, apiKey, voice) {
     if (!response.ok) {
       const statusMessages = {
         400: 'Bad request - invalid text or parameters',
-        401: 'Unauthorized - invalid DeepInfra API key',
-        402: 'Payment required - DeepInfra quota exceeded',
+        401: 'Unauthorized - invalid API key',
+        402: 'Payment required - quota exceeded',
         429: 'Too many requests - rate limit exceeded',
-        500: 'DeepInfra server error'
+        500: 'Server error'
       };
       const message = statusMessages[response.status] || `HTTP error ${response.status}`;
       throw new Error(`TTS failed: ${response.status} - ${message}`);
@@ -303,7 +333,6 @@ async function synthesizeSpeechKokoro(text, apiKey, voice) {
 
     const contentType = response.headers.get('content-type') || '';
 
-    // If response is binary audio, convert to base64 like Deepgram
     if (contentType.startsWith('audio/')) {
       const arrayBuffer = await response.arrayBuffer();
       return arrayBufferToBase64(arrayBuffer);
@@ -315,13 +344,10 @@ async function synthesizeSpeechKokoro(text, apiKey, voice) {
     }
 
     let audio = data.audio;
-    // Strip data URL prefix if present
     if (audio.startsWith('data:')) {
       audio = audio.split(',')[1];
     }
-    // Convert URL-safe base64 to standard base64
     audio = audio.replace(/-/g, '+').replace(/_/g, '/');
-    // Fix padding
     while (audio.length % 4 !== 0) {
       audio += '=';
     }
@@ -337,6 +363,71 @@ async function synthesizeSpeechKokoro(text, apiKey, voice) {
   }
 }
 
+async function synthesizeSpeechOpenAI(text, baseUrl, apiKey, model, voice) {
+  if (pendingRequests >= MAX_CONCURRENT_REQUESTS) {
+    throw new Error('Too many pending requests. Please wait.');
+  }
+
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_COOLDOWN_MS) {
+    await new Promise(resolve => setTimeout(resolve, REQUEST_COOLDOWN_MS - timeSinceLastRequest));
+  }
+
+  lastRequestTime = Date.now();
+  pendingRequests++;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${baseUrl}/v1/audio/speech`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, input: text, voice, lang_code: kokoroLangCode(voice) }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const statusMessages = {
+        400: 'Bad request - invalid text or parameters',
+        401: 'Unauthorized - invalid API key',
+        429: 'Too many requests - rate limit exceeded',
+        500: 'Server error'
+      };
+      const message = statusMessages[response.status] || `HTTP error ${response.status}`;
+      throw new Error(`TTS failed: ${response.status} - ${message}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return arrayBufferToBase64(arrayBuffer);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
+  } finally {
+    pendingRequests--;
+  }
+}
+
+// Kokoro lang_code derived from voice prefix
+function kokoroLangCode(voice) {
+  const prefix = voice.charAt(0);
+  if (prefix === 'p') return 'p';
+  if (prefix === 'e') return 'e';
+  if (prefix === 'b') return 'b';
+  return 'a';
+}
+
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -346,23 +437,21 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-async function performOCR(imageData, apiKey, model = 'deepseek-ai/DeepSeek-OCR') {
-  if (!apiKey) {
-    throw new Error('DeepInfra API key not configured. Add it in extension settings.');
-  }
-
-  console.log('[Guacamayo] Calling DeepInfra OCR API with model:', model);
+async function performOCR(imageData, apiKey, model = 'qwen/qwen2.5-vl-7b', baseUrl = 'http://macmini:1234/v1') {
+  console.log('[Guacamayo] Calling OCR API with model:', model, 'at:', baseUrl);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for OCR
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
-    const response = await fetch('https://api.deepinfra.com/v1/openai/chat/completions', {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers,
       body: JSON.stringify({
         model: model,
         max_tokens: 4096,
@@ -377,7 +466,7 @@ async function performOCR(imageData, apiKey, model = 'deepseek-ai/DeepSeek-OCR')
               {
                 type: 'image_url',
                 image_url: {
-                  url: imageData // base64 data URL
+                  url: imageData
                 }
               }
             ]
@@ -391,16 +480,16 @@ async function performOCR(imageData, apiKey, model = 'deepseek-ai/DeepSeek-OCR')
 
     if (!response.ok) {
       const statusMessages = {
-        401: 'Invalid DeepInfra API key',
-        402: 'DeepInfra quota exceeded',
+        401: 'Invalid API key',
+        402: 'Quota exceeded',
         429: 'Rate limit exceeded',
-        500: 'DeepInfra server error'
+        500: 'Server error'
       };
       throw new Error(statusMessages[response.status] || `OCR failed: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('[Guacamayo] DeepInfra response:', data);
+    console.log('[Guacamayo] OCR response:', data);
 
     const text = data.choices?.[0]?.message?.content?.trim();
 

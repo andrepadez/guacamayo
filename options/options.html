@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guacamayo Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Guacamayo</h1>
+      <p class="subtitle">Provider Settings</p>
+    </header>
+
+    <main>
+      <section class="settings-section">
+        <h2>Text to Speech</h2>
+
+        <div class="field">
+          <label for="ttsProvider">Provider</label>
+          <select id="ttsProvider">
+            <option value="openai">Kokoro (Local / OpenAI-compatible)</option>
+            <option value="deepgram">Deepgram</option>
+            <option value="kokoro">Kokoro (DeepInfra)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="ttsBaseUrl">Base URL</label>
+          <input type="text" id="ttsBaseUrl" placeholder="https://api.deepgram.com">
+        </div>
+
+        <div class="field">
+          <label for="ttsApiKey">API Key</label>
+          <div class="input-group">
+            <input type="password" id="ttsApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="toggleTtsKey" class="icon-btn" title="Show/Hide">
+              <svg class="eye-icon" viewBox="0 0 24 24" width="20" height="20">
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="field" id="ttsModelField">
+          <label for="ttsModel">Model</label>
+          <input type="text" id="ttsModel" placeholder="hexgrad/Kokoro-82M">
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h2>OCR (Image Text Extraction)</h2>
+
+        <div class="field">
+          <label for="ocrBaseUrl">Base URL</label>
+          <input type="text" id="ocrBaseUrl" placeholder="http://macmini:1234/v1">
+        </div>
+
+        <div class="field">
+          <label for="ocrApiKey">API Key</label>
+          <div class="input-group">
+            <input type="password" id="ocrApiKey" placeholder="Enter API key" autocomplete="off">
+            <button id="toggleOcrKey" class="icon-btn" title="Show/Hide">
+              <svg class="eye-icon" viewBox="0 0 24 24" width="20" height="20">
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="ocrModel">Model</label>
+          <select id="ocrModel">
+            <optgroup label="Local">
+              <option value="qwen/qwen2.5-vl-7b">Qwen 2.5-VL 7B (LMStudio)</option>
+            </optgroup>
+            <optgroup label="DeepInfra - OCR Specialized">
+              <option value="deepseek-ai/DeepSeek-OCR">DeepSeek OCR (fast, accurate)</option>
+              <option value="allenai/olmOCR-2-7B-1025">olmOCR-2 (complex layouts)</option>
+              <option value="PaddlePaddle/PaddleOCR-VL-0.9B">PaddleOCR-VL (lightweight)</option>
+            </optgroup>
+            <optgroup label="DeepInfra - Qwen Vision">
+              <option value="Qwen/Qwen3-VL-30B-A3B-Instruct">Qwen3-VL-30B</option>
+              <option value="Qwen/Qwen3-VL-235B-A22B-Instruct">Qwen3-VL-235B (largest)</option>
+            </optgroup>
+          </select>
+        </div>
+      </section>
+
+      <div class="status-bar">
+        <span id="status"></span>
+      </div>
+
+      <button id="saveBtn" class="primary-btn">Save Settings</button>
+    </main>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

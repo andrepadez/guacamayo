@@ -13,90 +13,27 @@
       <p class="subtitle">Text to Speech</p>
     </header>
 
+    <div id="noConfigBanner" class="no-config-banner" style="display:none">
+      <p>No TTS provider configured.</p>
+      <a href="#" id="openOptionsFromBanner">Set up in Options</a>
+    </div>
+
     <main>
-      <!-- Deepgram-dependent settings -->
       <section class="settings-section" id="section-voice">
         <label for="voice">English Voice</label>
-        <select id="voice">
-          <optgroup label="Featured">
-            <option value="aura-2-thalia-en">Thalia (feminine, energetic)</option>
-            <option value="aura-2-andromeda-en">Andromeda (feminine, expressive)</option>
-            <option value="aura-2-helena-en">Helena (feminine, friendly)</option>
-            <option value="aura-2-apollo-en">Apollo (masculine, confident)</option>
-            <option value="aura-2-arcas-en">Arcas (masculine, smooth)</option>
-            <option value="aura-2-aries-en">Aries (masculine, warm)</option>
-          </optgroup>
-          <optgroup label="More Voices">
-            <option value="aura-2-asteria-en">Asteria (feminine, confident)</option>
-            <option value="aura-2-athena-en">Athena (feminine, calm)</option>
-            <option value="aura-2-aurora-en">Aurora (feminine, cheerful)</option>
-            <option value="aura-2-cora-en">Cora (feminine, melodic)</option>
-            <option value="aura-2-draco-en">Draco (masculine, British)</option>
-            <option value="aura-2-hermes-en">Hermes (masculine, engaging)</option>
-            <option value="aura-2-orion-en">Orion (masculine, calm)</option>
-            <option value="aura-2-orpheus-en">Orpheus (masculine, trustworthy)</option>
-            <option value="aura-2-zeus-en">Zeus (masculine, deep)</option>
-          </optgroup>
-        </select>
+        <select id="voice"></select>
       </section>
 
       <section class="settings-section" id="section-voiceEs">
         <label for="voiceEs">Spanish Voice</label>
-        <select id="voiceEs">
-          <optgroup label="Peninsular">
-            <option value="aura-2-carina-es">Carina (feminine, codeswitching)</option>
-            <option value="aura-2-diana-es">Diana (feminine, codeswitching)</option>
-            <option value="aura-2-nestor-es">Nestor (masculine)</option>
-            <option value="aura-2-alvaro-es">Alvaro (masculine)</option>
-            <option value="aura-2-agustina-es">Agustina (feminine)</option>
-            <option value="aura-2-silvia-es">Silvia (feminine)</option>
-          </optgroup>
-          <optgroup label="Mexican">
-            <option value="aura-2-javier-es">Javier (masculine, codeswitching)</option>
-            <option value="aura-2-sirio-es">Sirio (masculine)</option>
-            <option value="aura-2-estrella-es">Estrella (feminine)</option>
-            <option value="aura-2-luciano-es">Luciano (masculine)</option>
-            <option value="aura-2-olivia-es">Olivia (feminine)</option>
-            <option value="aura-2-valerio-es">Valerio (masculine)</option>
-          </optgroup>
-          <optgroup label="Other">
-            <option value="aura-2-celeste-es">Celeste (feminine, Colombian)</option>
-            <option value="aura-2-gloria-es">Gloria (feminine, Colombian)</option>
-            <option value="aura-2-antonia-es">Antonia (feminine, Argentine)</option>
-            <option value="aura-2-aquila-es">Aquila (feminine, Latin American, codeswitching)</option>
-            <option value="aura-2-selena-es">Selena (feminine, Latin American, codeswitching)</option>
-          </optgroup>
-        </select>
+        <select id="voiceEs"></select>
       </section>
 
-      <!-- DeepInfra-dependent settings -->
       <section class="settings-section" id="section-voicePt">
         <label for="voicePt">Portuguese Voice</label>
-        <select id="voicePt">
-          <optgroup label="Brazilian">
-            <option value="pf_dora">Dora (feminine)</option>
-            <option value="pm_alex">Alex (masculine)</option>
-            <option value="pm_santa">Santa (masculine)</option>
-          </optgroup>
-        </select>
+        <select id="voicePt"></select>
       </section>
 
-      <section class="settings-section" id="section-ocrModel">
-        <label for="ocrModel">OCR Model</label>
-        <select id="ocrModel">
-          <optgroup label="OCR Specialized">
-            <option value="deepseek-ai/DeepSeek-OCR">DeepSeek OCR (fast, accurate)</option>
-            <option value="allenai/olmOCR-2-7B-1025">olmOCR-2 (complex layouts)</option>
-            <option value="PaddlePaddle/PaddleOCR-VL-0.9B">PaddleOCR-VL (lightweight)</option>
-          </optgroup>
-          <optgroup label="Qwen Vision">
-            <option value="Qwen/Qwen3-VL-30B-A3B-Instruct">Qwen3-VL-30B</option>
-            <option value="Qwen/Qwen3-VL-235B-A22B-Instruct">Qwen3-VL-235B (largest)</option>
-          </optgroup>
-        </select>
-      </section>
-
-      <!-- Always visible -->
       <section class="settings-section" id="section-speed">
         <label for="speed">Speed</label>
         <div class="speed-control">
@@ -110,60 +47,23 @@
       </div>
 
       <button id="saveBtn" class="primary-btn">Save Settings</button>
-
-      <!-- API keys at the bottom -->
-      <section class="settings-section key-section" id="section-apiKey">
-        <label for="apiKey">Deepgram API Key (TTS)</label>
-        <div class="input-group">
-          <input
-            type="password"
-            id="apiKey"
-            placeholder="Enter your Deepgram API key"
-            autocomplete="off"
-          >
-          <button id="toggleKey" class="icon-btn" title="Show/Hide">
-            <svg class="eye-icon" viewBox="0 0 24 24" width="20" height="20">
-              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
-            </svg>
-          </button>
-        </div>
-      </section>
-
-      <section class="settings-section key-section" id="section-ocrApiKey">
-        <label for="ocrApiKey">DeepInfra API Key (OCR + PT Voice)</label>
-        <div class="input-group">
-          <input
-            type="password"
-            id="ocrApiKey"
-            placeholder="Enter your DeepInfra API key"
-            autocomplete="off"
-          >
-          <button id="toggleOcrKey" class="icon-btn" title="Show/Hide">
-            <svg class="eye-icon" viewBox="0 0 24 24" width="20" height="20">
-              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
-            </svg>
-          </button>
-        </div>
-      </section>
     </main>
 
     <details class="usage-guide">
       <summary>How to use</summary>
       <ul>
         <li><strong>Right-click</strong> on any text and select "Read with Guacamayo"</li>
-        <li><strong>Scroll wheel</strong> or <strong>↑↓</strong> to expand/shrink the reading area</li>
+        <li><strong>Scroll wheel</strong> or <strong>&#x2191;&#x2193;</strong> to expand/shrink the reading area</li>
         <li><strong>Space</strong> to play/pause</li>
-        <li><strong>←→</strong> to skip forward/backward while playing</li>
+        <li><strong>&#x2190;&#x2192;</strong> to skip forward/backward while playing</li>
         <li><strong>Esc</strong> to dismiss selection or stop playback</li>
         <li><strong>Click</strong> on highlighted text to jump to that section</li>
       </ul>
     </details>
 
-    <footer>
-      <a href="https://developers.deepgram.com" target="_blank" rel="noopener">Deepgram</a>
-      <span class="footer-sep">·</span>
-      <a href="https://deepinfra.com/dash/api_keys" target="_blank" rel="noopener">DeepInfra</a>
-    </footer>
+    <div class="options-link">
+      <a href="#" id="openOptions">Configure providers &amp; API keys</a>
+    </div>
   </div>
 
   <script src="popup.js"></script>

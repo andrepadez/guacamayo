@@ -74,11 +74,11 @@ function parseApiError(error) {
   if (message.includes('403') || message.includes('Forbidden')) {
     return 'Access denied. Your API key may not have permission for this voice.';
   }
-  if (message.includes('API key not configured') || message.includes('Deepgram API key')) {
-    return 'No API key configured. Click the Guacamayo extension icon to add your Deepgram API key.';
+  if (message.includes('API key not configured') || message.includes('TTS API key')) {
+    return 'No TTS API key configured. Right-click the extension icon and select "Options" to set it up.';
   }
-  if (message.includes('DeepInfra API key not configured')) {
-    return 'No DeepInfra API key configured. Click the Guacamayo extension icon to add it.';
+  if (message.includes('OCR API key not configured')) {
+    return 'No OCR API key configured. Right-click the extension icon and select "Options" to set it up.';
   }
   if (message.includes('NetworkError') || message.includes('Failed to fetch')) {
     return 'Network error. Please check your internet connection.';
@@ -144,14 +144,18 @@ function detectLanguage(text) {
 
 function getVoiceForText(text) {
   const lang = detectLanguage(text);
-  if (lang === 'pt') return { voice: settings.voicePt, provider: 'kokoro' };
-  if (lang === 'es') return { voice: settings.voiceEs, provider: 'deepgram' };
-  return { voice: settings.voice, provider: 'deepgram' };
+  if (lang === 'pt') return settings.voicePt;
+  if (lang === 'es') return settings.voiceEs;
+  return settings.voice;
 }
 
 let isPlaying = false;
 let isPaused = false;
-let settings = { apiKey: '', ocrApiKey: '', ocrModel: 'deepseek-ai/DeepSeek-OCR', voice: 'aura-2-thalia-en', voiceEs: 'aura-2-carina-es', voicePt: 'pm_alex', speed: 1 };
+let settings = {
+  ttsProvider: 'openai', ttsBaseUrl: 'http://macmini:9002', ttsApiKey: '', ttsModel: 'mlx-community/Kokoro-82M-bf16',
+  ocrBaseUrl: 'http://macmini:1234/v1', ocrApiKey: '', ocrModel: 'qwen/qwen2.5-vl-7b',
+  voice: 'af_heart', voiceEs: 'ef_dora', voicePt: 'pf_dora', speed: 1
+};
 let textChunks = [];
 let currentChunkIndex = 0;
 let audioCache = new Map();
@@ -587,26 +591,21 @@ function removeClickHandler() {
 }
 
 async function synthesizeSpeech(text, voice) {
-  const voiceInfo = voice
-    ? { voice, provider: 'deepgram' }
-    : getVoiceForText(text);
+  const resolvedVoice = voice || getVoiceForText(text);
 
-  const apiKey = voiceInfo.provider === 'kokoro' ? settings.ocrApiKey : settings.apiKey;
-
-  if (!apiKey) {
-    const msg = voiceInfo.provider === 'kokoro'
-      ? 'DeepInfra API key not configured. Add it in extension settings.'
-      : 'API key not configured. Click the extension icon to add your Deepgram API key.';
-    throw new Error(msg);
+  if (!settings.ttsApiKey && settings.ttsProvider !== 'openai') {
+    throw new Error('TTS API key not configured. Set it in extension options.');
   }
 
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({
       type: 'SYNTHESIZE',
       text,
-      apiKey,
-      voice: voiceInfo.voice,
-      provider: voiceInfo.provider
+      apiKey: settings.ttsApiKey,
+      voice: resolvedVoice,
+      provider: settings.ttsProvider,
+      baseUrl: settings.ttsBaseUrl,
+      model: settings.ttsModel
     }, response => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
@@ -1032,11 +1031,11 @@ function escapeHtml(text) {
 
 function playExtractedText(text) {
   console.log('[Guacamayo] playExtractedText called, text length:', text.length);
-  console.log('[Guacamayo] settings.apiKey exists:', !!settings.apiKey);
+  console.log('[Guacamayo] ttsProvider:', settings.ttsProvider, 'ttsApiKey exists:', !!settings.ttsApiKey);
 
-  // Check for API key
-  if (!settings.apiKey) {
-    showToast('Deepgram API key not configured. Click the extension icon to add it.', 'error');
+  // Check for API key (openai provider may not need one)
+  if (!settings.ttsApiKey && settings.ttsProvider !== 'openai') {
+    showToast('TTS API key not configured. Set it in extension options.', 'error');
     return;
   }
 
@@ -1106,7 +1105,8 @@ async function handleImageOcr(imageUrl) {
         type: 'OCR_IMAGE',
         imageData,
         ocrApiKey: settings.ocrApiKey,
-        ocrModel: settings.ocrModel
+        ocrModel: settings.ocrModel,
+        ocrBaseUrl: settings.ocrBaseUrl
       }, response => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
@@ -1133,9 +1133,14 @@ async function handleImageOcr(imageUrl) {
 }
 
 function init() {
-  chrome.storage.local.get(['apiKey', 'ocrApiKey', 'ocrModel', 'voice', 'voiceEs', 'voicePt', 'speed'], (result) => {
-    settings = { ...settings, ...result };
-  });
+  chrome.storage.local.get(
+    ['ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel',
+     'ocrBaseUrl', 'ocrApiKey', 'ocrModel',
+     'voice', 'voiceEs', 'voicePt', 'speed'],
+    (result) => {
+      settings = { ...settings, ...result };
+    }
+  );
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
